@@ -90,4 +90,34 @@ if reset_btn or not run_btn:
 else:
     # RUN CALCULATIONS
     an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
-    y0 = [v_start, an0/(an0+bn0
+    y0 = [v_start, an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)]
+    sol = solve_ivp(equations, [0, t_max], y0, args=(p1, p2, delay, I1, I2),
+                    method='BDF', t_eval=np.linspace(0, t_max, 1000))
+
+    # Plotting code
+    axs[0,0].plot(sol.t, sol.y[0], 'k', lw=2)
+    axs[0,0].set_title("Membrane Potential (mV)")
+    axs[0,0].set_ylim(-80, 80)
+
+    axs[0,1].plot(sol.t, sol.y[1], color='red', label='n (K activation)')
+    axs[0,1].plot(sol.t, sol.y[2], color='yellow', label='m (Na activation)')
+    axs[0,1].plot(sol.t, sol.y[3], color='blue', label='h (Na inactivation)')
+    axs[0,1].set_title("Gating Variables")
+    axs[0,1].set_ylim(0, 1)
+    axs[0,1].legend(fontsize='x-small')
+
+    gK = 36 * (sol.y[1]**4); gNa = 120 * (sol.y[2]**3) * sol.y[3]
+    axs[0,2].plot(sol.t, gK, label='gK'); axs[0,2].plot(sol.t, gNa, label='gNa')
+    axs[0,2].set_title("Conductances"); axs[0,2].legend()
+
+    v_range = np.linspace(-100, 100, 400); an, bn, am, bm, ah, bh = rate_constants(v_range)
+    axs[1,0].plot(v_range, 1/(an+bn), label='tn'); axs[1,0].plot(v_range, 1/(am+bm), label='tm'); axs[1,0].plot(v_range, 1/(ah+bh), label='th')
+    axs[1,0].set_title("Time Constants (ms)"); axs[1,0].set_ylim(0, 10); axs[1,0].legend()
+
+    axs[1,1].plot(v_range, an/(an+bn), label='n_inf'); axs[1,1].plot(v_range, am/(am+bm), label='m_inf'); axs[1,1].plot(v_range, ah/(ah+bh), label='h_inf')
+    axs[1,1].set_title("Steady State Gating"); axs[1,1].legend()
+
+    axs[1,2].plot(sol.y[0], sol.y[1], color='purple')
+    axs[1,2].set_title("Phase Plane (V vs n)"); axs[1,2].set_xlim(-80, 80)
+
+st.pyplot(fig, clear_figure=True)
