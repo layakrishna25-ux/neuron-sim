@@ -3,94 +3,108 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
-# --- PART 1: THE BRAIN (The Hodgkin-Huxley Math) ---
-# These functions handle the actual neuron science
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Neuron Action Potential Simulator", layout="wide")
+st.title("Hodgkin-Huxley Neuron Simulation")
 
-def alpha_n(v):
-    denom = 1 - np.exp(-(v + 55) / 10)
-    return 0.01 * (v + 55) / denom if not np.isclose(denom, 0) else 0.1
+# --- SIDEBAR CONTROLS (Restoring your original boxes) ---
+st.sidebar.header("Simulation Parameters")
+v_start = st.sidebar.number_input("Initial V (mV)", value=-53.0)
+I1 = st.sidebar.number_input("Pulse 1 Amp (uA)", value=0.0)
+p1 = st.sidebar.number_input("Pulse 1 Width (ms)", value=0.0)
+delay = st.sidebar.number_input("Delay (ms)", value=0.0)
+I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", value=0.0)
+p2 = st.sidebar.number_input("Pulse 2 Width (ms)", value=0.0)
+t_max = st.sidebar.number_input("Time Span (ms)", value=20.0)
 
-def beta_n(v):
-    return 0.125 * np.exp(-(v + 65) / 80)
+# --- THE MATH (Exact copy from your original) ---
+def rate_constants(v):
+    am = 0.1 * (-35 - v) / (np.exp((-35 - v) / 10) - 1)
+    bm = 4 * np.exp((-60 - v) / 18)
+    ah = 0.07 * np.exp((-60 - v) / 20)
+    bh = 1.0 / (np.exp((-30 - v) / 10) + 1)
+    an = 0.01 * (-50 - v) / (np.exp((-50.0000001 - v) / 10) - 1)
+    bn = 0.125 * np.exp((-60 - v) / 80)
+    return an, bn, am, bm, ah, bh
 
-def alpha_m(v):
-    denom = 1 - np.exp(-(v + 40) / 10)
-    return 0.1 * (v + 40) / denom if not np.isclose(denom, 0) else 1.0
-
-def beta_m(v):
-    return 4.0 * np.exp(-(v + 65) / 18)
-
-def alpha_h(v):
-    return 0.07 * np.exp(-(v + 65) / 20)
-
-def beta_h(v):
-    return 1 / (1 + np.exp(-(v + 35) / 10))
-
-def model(t, y, I_inj_func):
-    V, m, h, n = y
-    C_m = 1.0
-    g_Na, g_K, g_L = 120.0, 36.0, 0.3
-    E_Na, E_K, E_L = 50.0, -77.0, -54.387
+def equations(t, y, p1, p2, delay, I1, I2):
+    v, n, m, h = y
+    ggK, ggNa, ggL = 36.0, 120.0, 0.3
+    vK, vNa, vL = -72.14, 55.17, -49.24
+    Cm = 1.0
     
-    # Calculate currents
-    I_Na = g_Na * (m**3) * h * (V - E_Na)
-    I_K = g_K * (n**4) * (V - E_K)
-    I_L = g_L * (V - E_L)
-    
-    dVdt = (I_inj_func(t) - I_Na - I_K - I_L) / C_m
-    dmdt = alpha_m(V) * (1 - m) - beta_m(V) * m
-    dhdt = alpha_h(V) * (1 - h) - beta_h(V) * h
-    dndt = alpha_n(V) * (1 - n) - beta_n(V) * n
-    return [dVdt, dmdt, dhdt, dndt]
+    # Stimulus current logic
+    if t < p1:
+        Is = I1
+    elif t < (p1 + delay + p2):
+        Is = I2
+    else:
+        Is = 0.0
+            
+    an, bn, am, bm, ah, bh = rate_constants(v)
+    dv = (-ggK*(n**4)*(v-vK) - ggNa*(m**3)*h*(v-vNa) - ggL*(v-vL) + Is) / Cm
+    dn = an * (1 - n) - bn * n
+    dm = am * (1 - m) - bm * m
+    dh = ah * (1 - h) - bh * h
+    return [dv, dn, dm, dh]
 
-# --- PART 2: THE FACE (Streamlit Web Layout) ---
-st.set_page_config(layout="wide", page_title="HH Neuron Simulator")
-st.title("Hodgkin-Huxley Neuron Simulator")
+# --- RUN SIMULATION ---
+an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
+n_ss, m_ss, h_ss = an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)
+y0 = [v_start, n_ss, m_ss, h_ss]
 
-# Sidebar inputs to match your original UI
-with st.sidebar:
-    st.header("Simulation Parameters")
-    v_init = st.number_input("Initial V (mV)", value=-53.0)
-    t_max = st.number_input("Time Span (ms)", value=20.0)
-    i_amp = st.number_input("Stimulus Amp (uA)", value=10.0)
-    run_btn = st.button("RUN SIMULATION", type="primary")
+sol = solve_ivp(
+    equations, [0, t_max], y0, 
+    args=(p1, p2, delay, I1, I2),
+    method='BDF', t_eval=np.linspace(0, t_max, 1000)
+)
 
-if run_btn:
-    # Set up the simulation
-    t_eval = np.linspace(0, t_max, 1000)
-    # Simple pulse: on from 2ms to 7ms
-    I_inj = lambda t: i_amp if 2 <= t <= 7 else 0.0
-    
-    # Initial steady state values
-    y0 = [v_init, 0.05, 0.6, 0.32]
-    
-    sol = solve_ivp(model, [0, t_max], y0, t_eval=t_eval, args=(I_inj,))
+# --- PLOTTING (The 6-Panel Layout) ---
+fig, axs = plt.subplots(2, 3, figsize=(15, 10))
+plt.subplots_adjust(hspace=0.4, wspace=0.3)
 
-    # PART 3: THE PLOTS
-    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-    
-    # Voltage Plot
-    axs[0, 0].plot(sol.t, sol.y[0], color='black', lw=2)
-    axs[0, 0].set_title("Membrane Potential (mV)")
-    axs[0, 0].grid(True)
+# Plot 1: Membrane Potential
+axs[0,0].plot(sol.t, sol.y[0], 'k', lw=2)
+axs[0,0].set_title("Membrane Potential (mV)")
+axs[0,0].grid(True)
 
-    # Gating Variables Plot
-    axs[0, 1].plot(sol.t, sol.y[1], label='m (Na activation)')
-    axs[0, 1].plot(sol.t, sol.y[2], label='h (Na inactivation)')
-    axs[0, 1].plot(sol.t, sol.y[3], label='n (K activation)')
-    axs[0, 1].set_title("Gating Variables")
-    axs[0, 1].legend()
+# Plot 2: Gating Variables
+axs[0,1].plot(sol.t, sol.y[1], label='n(t)')
+axs[0,1].plot(sol.t, sol.y[2], label='m(t)')
+axs[0,1].plot(sol.t, sol.y[3], label='h(t)')
+axs[0,1].set_title("Gating Variables")
+axs[0,1].legend(loc='upper right', fontsize='small')
 
-    # Phase Plane (V vs n)
-    axs[1, 0].plot(sol.y[0], sol.y[3], color='red')
-    axs[1, 0].set_xlabel("V (mV)")
-    axs[1, 1].set_ylabel("n variable")
-    axs[1, 0].set_title("Phase Plane (V vs n)")
+# Plot 3: Conductances
+gK = 36 * (sol.y[1]**4)
+gNa = 120 * (sol.y[2]**3) * sol.y[3]
+axs[0,2].plot(sol.t, gK, label='gK')
+axs[0,2].plot(sol.t, gNa, label='gNa')
+axs[0,2].set_title("Conductances")
+axs[0,2].legend(loc='upper right', fontsize='small')
 
-    # Stimulus Current
-    current_vals = [I_inj(t) for t in sol.t]
-    axs[1, 1].plot(sol.t, current_vals, color='blue')
-    axs[1, 1].set_title("Injected Current (uA)")
+# Steady State Data
+v_range = np.linspace(-100, 100, 400)
+an, bn, am, bm, ah, bh = rate_constants(v_range)
 
-    plt.tight_layout()
-    st.pyplot(fig) # This displays the graphs on the website
+# Plot 4: Time Constants
+axs[1,0].plot(v_range, 1/(an+bn), label='tn')
+axs[1,0].plot(v_range, 1/(am+bm), label='tm')
+axs[1,0].plot(v_range, 1/(ah+bh), label='th')
+axs[1,0].set_title("Time Constants (ms)")
+axs[1,0].set_ylim(0, 10)
+axs[1,0].legend(fontsize='small')
+
+# Plot 5: Steady State Gating
+axs[1,1].plot(v_range, an/(an+bn), label='n_inf')
+axs[1,1].plot(v_range, am/(am+bm), label='m_inf')
+axs[1,1].plot(v_range, ah/(ah+bh), label='h_inf')
+axs[1,1].set_title("Steady State Gating")
+axs[1,1].legend(fontsize='small')
+
+# Plot 6: Phase Plot
+axs[1,2].plot(sol.y[0], sol.y[1], 'r')
+axs[1,2].set_title("Phase Plane (V vs n)")
+axs[1,2].set_xlabel("V (mV)")
+
+st.pyplot(fig)
