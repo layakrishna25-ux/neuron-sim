@@ -143,4 +143,4 @@ if st.session_state.run_clicked:
     axs[1,2].legend(loc='upper right')
 
 # Render the plot - clear_figure=True ensures a crisp snap update
-st.pyplot(fig, clear
+st.pyplot(fig, clear_figure=True)
