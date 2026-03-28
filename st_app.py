@@ -7,36 +7,54 @@ from scipy.integrate import solve_ivp
 st.set_page_config(page_title="HH Neuron Simulator", layout="wide")
 st.title("Hodgkin-Huxley Action Potential Simulation")
 
+# --- INITIALIZE SESSION STATE ---
+if 'v_start' not in st.session_state:
+    st.session_state.v_start = -53.0
+if 'I1' not in st.session_state:
+    st.session_state.I1 = 0.0
+if 'p1' not in st.session_state:
+    st.session_state.p1 = 0.0
+if 'delay' not in st.session_state:
+    st.session_state.delay = 0.0
+if 'I2' not in st.session_state:
+    st.session_state.I2 = 0.0
+if 'p2' not in st.session_state:
+    st.session_state.p2 = 0.0
+if 't_max' not in st.session_state:
+    st.session_state.t_max = 20.0
+
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("Simulation Parameters")
 
-# 1. Voltage at the TOP as requested
-# Smart Default Logic for the box value
-if 'I1' not in st.session_state: # Initialize state on first load
-    v_init_val = -53.0
+# Dynamic Voltage Logic based on other inputs
+if st.session_state.I1 != 0 or st.session_state.p1 != 0 or st.session_state.delay != 0 or \
+   st.session_state.I2 != 0 or st.session_state.p2 != 0:
+    v_auto = -60.0
 else:
-    # Logic: if pulses are active, default to -60, else -53
-    if st.session_state.get('I1', 0) != 0 or st.session_state.get('p1', 0) != 0 or \
-       st.session_state.get('delay', 0) != 0 or st.session_state.get('I2', 0) != 0 or \
-       st.session_state.get('p2', 0) != 0:
-        v_init_val = -60.0
-    else:
-        v_init_val = -53.0
+    v_auto = -53.0
 
-v_start = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, value=v_init_val, key="v_start")
+# Sidebar inputs using session state
+v_start = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, value=v_auto, key="v_start")
+I1 = st.sidebar.number_input("Pulse 1 Amp (uA)", min_value=-79.0, max_value=80.0, key="I1")
+p1 = st.sidebar.number_input("Pulse 1 Width (ms)", min_value=0.0, max_value=80.0, key="p1")
+delay = st.sidebar.number_input("Delay (ms)", min_value=0.0, max_value=80.0, key="delay")
+I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0, key="I2")
+p2 = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, key="p2")
+t_max = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, key="t_max")
 
-# 2. Other Inputs
-I1 = st.sidebar.number_input("Pulse 1 Amp (uA)", min_value=-79.0, max_value=80.0, value=0.0, key="I1")
-p1 = st.sidebar.number_input("Pulse 1 Width (ms)", min_value=0.0, max_value=80.0, value=0.0, key="p1")
-delay = st.sidebar.number_input("Delay (ms)", min_value=0.0, max_value=80.0, value=0.0, key="delay")
-I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0, value=0.0, key="I2")
-p2 = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, value=0.0, key="p2")
-t_max = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, value=20.0, key="t_max")
+# --- ACTION BUTTONS ---
+run_btn = st.sidebar.button("RUN", type="primary", use_container_width=True)
+reset_btn = st.sidebar.button("RESET", use_container_width=True)
 
-# 3. ACTION BUTTONS
-col1, col2 = st.sidebar.columns(2)
-run_btn = col1.button("RUN SIMULATION", type="primary", use_container_width=True)
-clear_btn = col2.button("CLEAR GRAPHS", use_container_width=True)
+if st.sidebar.button("DEFAULT VALUES", use_container_width=True):
+    st.session_state.v_start = -53.0
+    st.session_state.I1 = 0.0
+    st.session_state.p1 = 0.0
+    st.session_state.delay = 0.0
+    st.session_state.I2 = 0.0
+    st.session_state.p2 = 0.0
+    st.session_state.t_max = 20.0
+    st.rerun()
 
 # --- MATH FUNCTIONS ---
 def rate_constants(v):
@@ -65,60 +83,11 @@ def equations(t, y, p1, p2, delay, I1, I2):
 fig, axs = plt.subplots(2, 3, figsize=(15, 10))
 plt.subplots_adjust(hspace=0.4, wspace=0.3)
 
-# If CLEAR is pressed or app just loaded without RUN
-if clear_btn or not run_btn:
+if reset_btn or not run_btn:
     for ax in axs.flat:
-        ax.text(0.5, 0.5, 'No Data', ha='center', va='center')
+        ax.text(0.5, 0.5, 'No Data - Press RUN', ha='center', va='center')
         ax.set_xticks([]); ax.set_yticks([])
 else:
-    # RUN SIMULATION
+    # RUN CALCULATIONS
     an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
-    y0 = [v_start, an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)]
-    sol = solve_ivp(equations, [0, t_max], y0, args=(p1, p2, delay, I1, I2),
-                    method='BDF', t_eval=np.linspace(0, t_max, 1000))
-
-    # 1. Membrane Potential
-    axs[0,0].plot(sol.t, sol.y[0], 'k', lw=2)
-    axs[0,0].set_title("Membrane Potential (mV)")
-    axs[0,0].set_ylim(-80, 80)
-
-    # 2. Gating Variables (RED, YELLOW, BLUE)
-    axs[0,1].plot(sol.t, sol.y[1], color='red', label='n (K activation)')
-    axs[0,1].plot(sol.t, sol.y[2], color='yellow', label='m (Na activation)')
-    axs[0,1].plot(sol.t, sol.y[3], color='blue', label='h (Na inactivation)')
-    axs[0,1].set_title("Gating Variables")
-    axs[0,1].set_ylim(0, 1)
-    axs[0,1].legend(fontsize='x-small')
-
-    # 3. Conductances
-    gK = 36 * (sol.y[1]**4)
-    gNa = 120 * (sol.y[2]**3) * sol.y[3]
-    axs[0,2].plot(sol.t, gK, label='gK')
-    axs[0,2].plot(sol.t, gNa, label='gNa')
-    axs[0,2].set_title("Conductances")
-    axs[0,2].legend()
-
-    # 4. Time Constants
-    v_range = np.linspace(-100, 100, 400)
-    an, bn, am, bm, ah, bh = rate_constants(v_range)
-    axs[1,0].plot(v_range, 1/(an+bn), label='tn')
-    axs[1,0].plot(v_range, 1/(am+bm), label='tm')
-    axs[1,0].plot(v_range, 1/(ah+bh), label='th')
-    axs[1,0].set_title("Time Constants (ms)")
-    axs[1,0].set_ylim(0, 10)
-    axs[1,0].legend()
-
-    # 5. Steady State Gating
-    axs[1,1].plot(v_range, an/(an+bn), label='n_inf')
-    axs[1,1].plot(v_range, am/(am+bm), label='m_inf')
-    axs[1,1].plot(v_range, ah/(ah+bh), label='h_inf')
-    axs[1,1].set_title("Steady State Gating")
-    axs[1,1].legend()
-
-    # 6. Phase Plot
-    axs[1,2].plot(sol.y[0], sol.y[1], color='purple')
-    axs[1,2].set_title("Phase Plane (V vs n)")
-    axs[1,2].set_xlim(-80, 80)
-
-# Display the final crisp figure
-st.pyplot(fig, clear_figure=True)
+    y0 = [v_start, an0/(an0+bn0
