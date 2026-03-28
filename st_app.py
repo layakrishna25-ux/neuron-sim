@@ -12,31 +12,34 @@ C_RED = 'darkred'
 C_GOLD = 'darkgoldenrod'
 C_BLUE = 'darkblue'
 
-# --- INITIALIZE SESSION STATE ---
-defaults = {
-    'v_start': -53.0, 'I1': 0.0, 'p1': 0.0, 'delay': 0.0, 
-    'I2': 0.0, 'p2': 0.0, 't_max': 20.0, 'run_clicked': False
-}
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-# --- SMART VOLTAGE LOGIC ---
-# We check if anything changed before rendering the input box
-any_pulse_active = any([
-    st.session_state.I1 != 0, st.session_state.p1 != 0, 
-    st.session_state.delay != 0, st.session_state.I2 != 0, 
-    st.session_state.p2 != 0
-])
-
-# If pulses are active but voltage is still at the resting default, flip it to -60
-if any_pulse_active and st.session_state.v_start == -53.0:
-    st.session_state.v_start = -60.0
-# If everything is zeroed out and it's at -60, flip it back to -53
-elif not any_pulse_active and st.session_state.v_start == -60.0:
+# --- 1. SESSION STATE INITIALIZATION ---
+if 'v_start' not in st.session_state:
     st.session_state.v_start = -53.0
+if 'I1' not in st.session_state:
+    st.session_state.I1 = 0.0
+if 'p1' not in st.session_state:
+    st.session_state.p1 = 0.0
+if 'delay' not in st.session_state:
+    st.session_state.delay = 0.0
+if 'I2' not in st.session_state:
+    st.session_state.I2 = 0.0
+if 'p2' not in st.session_state:
+    st.session_state.p2 = 0.0
+if 't_max' not in st.session_state:
+    st.session_state.t_max = 20.0
+if 'run_sim' not in st.session_state:
+    st.session_state.run_sim = False
 
-# --- SIDEBAR CONTROLS ---
+# --- 2. SMART VOLTAGE LOGIC ---
+# If any pulse parameter is non-zero and voltage is still at start default, switch to -60
+pulses_active = any([st.session_state.I1 != 0, st.session_state.p1 != 0, 
+                     st.session_state.delay != 0, st.session_state.I2 != 0, 
+                     st.session_state.p2 != 0])
+
+if pulses_active and st.session_state.v_start == -53.0:
+    st.session_state.v_start = -60.0
+
+# --- 3. SIDEBAR INPUTS ---
 st.sidebar.header("Simulation Parameters")
 
 v_start = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, key="v_start")
@@ -47,23 +50,26 @@ I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0
 p2 = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, key="p2")
 t_max = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, key="t_max")
 
-# --- ACTION BUTTONS (At the bottom) ---
+# --- 4. BUTTONS ---
 st.sidebar.markdown("---")
-run_btn = st.sidebar.button("RUN", type="primary", use_container_width=True)
-reset_btn = st.sidebar.button("RESET", use_container_width=True)
-default_btn = st.sidebar.button("DEFAULT VALUES", use_container_width=True)
+if st.sidebar.button("RUN", type="primary", use_container_width=True):
+    st.session_state.run_sim = True
 
-if default_btn:
-    for key, val in defaults.items():
-        st.session_state[key] = val
+if st.sidebar.button("RESET", use_container_width=True):
+    st.session_state.run_sim = False
+
+if st.sidebar.button("DEFAULT VALUES", use_container_width=True):
+    st.session_state.v_start = -53.0
+    st.session_state.I1 = 0.0
+    st.session_state.p1 = 0.0
+    st.session_state.delay = 0.0
+    st.session_state.I2 = 0.0
+    st.session_state.p2 = 0.0
+    st.session_state.t_max = 20.0
+    st.session_state.run_sim = False
     st.rerun()
 
-if run_btn:
-    st.session_state.run_clicked = True
-if reset_btn:
-    st.session_state.run_clicked = False
-
-# --- MATH FUNCTIONS ---
+# --- 5. MATH & SOLVER ---
 def rate_constants(v):
     am = 0.1 * (-35 - v) / (np.exp((-35 - v) / 10) - 1)
     bm = 4 * np.exp((-60 - v) / 18)
@@ -86,61 +92,48 @@ def equations(t, y, p1, p2, delay, I1, I2):
     dh = ah * (1 - h) - bh * h
     return [dv, dn, dm, dh]
 
-# --- DISPLAY LOGIC ---
+# --- 6. PLOTTING ---
 fig, axs = plt.subplots(2, 3, figsize=(15, 10))
 plt.subplots_adjust(hspace=0.4, wspace=0.3)
 
-# Initialize all axes styles
 for ax in axs.flat:
     ax.grid(True, linestyle=':', alpha=0.6)
 
+# Axis Setup
 axs[0,0].set_ylim(-80, 80); axs[0,0].set_title("Membrane Potential (mV)")
 axs[0,1].set_ylim(0, 1.1); axs[0,1].set_title("Gating Variables")
 axs[0,2].set_title("Conductances")
 axs[1,0].set_ylim(0, 10); axs[1,0].set_title("Time Constants (ms)")
 axs[1,1].set_ylim(0, 1.1); axs[1,1].set_title("Steady State Gating")
-axs[1,2].set_xlim(-80, 80); axs[1,2].set_ylim(0, 1.1); axs[1,2].set_title("Phase Plane (V vs n)")
+axs[1,2].set_xlim(-80, 80); axs[1,2].set_title("Phase Plane (V vs n)")
 
-# Only Plot Lines if RUN was clicked and RESET wasn't
-if st.session_state.run_clicked:
-    # RUN CALCULATIONS
+if st.session_state.run_sim:
     an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
     y0 = [st.session_state.v_start, an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)]
-    sol = solve_ivp(equations, [0, st.session_state.t_max], y0, args=(p1, p2, delay, I1, I2),
+    sol = solve_ivp(equations, [0, st.session_state.t_max], y0, args=(I1, I2, p1, p2, delay), 
                     method='BDF', t_eval=np.linspace(0, st.session_state.t_max, 1000))
 
-    # 1. Potential
     axs[0,0].plot(sol.t, sol.y[0], color='black', lw=2, label='Voltage')
-    axs[0,0].legend(loc='upper right')
+    axs[0,0].legend()
 
-    # 2. Gating
-    axs[0,1].plot(sol.t, sol.y[1], color=C_RED, label='n (K-activation)')
-    axs[0,1].plot(sol.t, sol.y[2], color=C_GOLD, label='m (Na-activation)')
-    axs[0,1].plot(sol.t, sol.y[3], color=C_BLUE, label='h (Na-inactivation)')
+    axs[0,1].plot(sol.t, sol.y[1], color=C_RED, label='n')
+    axs[0,1].plot(sol.t, sol.y[2], color=C_GOLD, label='m')
+    axs[0,1].plot(sol.t, sol.y[3], color=C_BLUE, label='h')
     axs[0,1].legend(loc='upper right', fontsize='x-small')
 
-    # 3. Conductances
     gK = 36 * (sol.y[1]**4); gNa = 120 * (sol.y[2]**3) * sol.y[3]
     axs[0,2].plot(sol.t, gK, color=C_RED, label='gK')
     axs[0,2].plot(sol.t, gNa, color=C_GOLD, label='gNa')
-    axs[0,2].legend(loc='upper right')
+    axs[0,2].legend()
 
-    # 4. Tau
     v_range = np.linspace(-100, 100, 400); an, bn, am, bm, ah, bh = rate_constants(v_range)
-    axs[1,0].plot(v_range, 1/(an+bn), color=C_RED, label='tn (K)')
-    axs[1,0].plot(v_range, 1/(am+bm), color=C_GOLD, label='tm (Na)')
-    axs[1,0].plot(v_range, 1/(ah+bh), color=C_BLUE, label='th (Na)')
-    axs[1,0].legend(loc='upper right', fontsize='x-small')
+    axs[1,0].plot(v_range, 1/(an+bn), color=C_RED, label='tn'); axs[1,0].plot(v_range, 1/(am+bm), color=C_GOLD, label='tm'); axs[1,0].plot(v_range, 1/(ah+bh), color=C_BLUE, label='th')
+    axs[1,0].legend(fontsize='x-small')
 
-    # 5. Infinity
-    axs[1,1].plot(v_range, an/(an+bn), color=C_RED, label='n_inf')
-    axs[1,1].plot(v_range, am/(am+bm), color=C_GOLD, label='m_inf')
-    axs[1,1].plot(v_range, ah/(ah+bh), color=C_BLUE, label='h_inf')
-    axs[1,1].legend(loc='upper right', fontsize='x-small')
+    axs[1,1].plot(v_range, an/(an+bn), color=C_RED, label='n_inf'); axs[1,1].plot(v_range, am/(am+bm), color=C_GOLD, label='m_inf'); axs[1,1].plot(v_range, ah/(ah+bh), color=C_BLUE, label='h_inf')
+    axs[1,1].legend(fontsize='x-small')
 
-    # 6. Phase
-    axs[1,2].plot(sol.y[0], sol.y[1], color='purple', label='Phase Trace')
-    axs[1,2].legend(loc='upper right')
+    axs[1,2].plot(sol.y[0], sol.y[1], color='purple', label='V vs n')
+    axs[1,2].legend()
 
-# Render the plot - clear_figure=True ensures a crisp snap update
-st.pyplot(fig, clear_figure=True)
+st.pyplot(fig)
