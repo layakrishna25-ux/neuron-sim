@@ -12,8 +12,7 @@ C_RED = 'darkred'
 C_GOLD = 'darkgoldenrod'
 C_BLUE = 'darkblue'
 
-# --- 1. SESSION STATE INITIALIZATION ---
-if 'v_start' not in st.session_state: st.session_state.v_start = -53.0
+# --- 1. INITIAL SESSION STATE ---
 if 'I1' not in st.session_state: st.session_state.I1 = 0.0
 if 'p1' not in st.session_state: st.session_state.p1 = 0.0
 if 'delay' not in st.session_state: st.session_state.delay = 0.0
@@ -22,17 +21,22 @@ if 'p2' not in st.session_state: st.session_state.p2 = 0.0
 if 't_max' not in st.session_state: st.session_state.t_max = 20.0
 if 'needs_run' not in st.session_state: st.session_state.needs_run = False
 
-# --- 2. SMART VOLTAGE LOGIC ---
+# Track pulses to determine the auto-voltage target
 pulses_active = any([st.session_state.I1 != 0, st.session_state.p1 != 0, 
                      st.session_state.delay != 0, st.session_state.I2 != 0, 
                      st.session_state.p2 != 0])
+target_v = -60.0 if pulses_active else -53.0
 
-if pulses_active and st.session_state.v_start == -53.0:
-    st.session_state.v_start = -60.0
-elif not pulses_active and st.session_state.v_start == -60.0:
-    st.session_state.v_start = -53.0
+# Initialize v_start properly without locked loops
+if 'v_start' not in st.session_state: 
+    st.session_state.v_start = target_v
+# Only auto-update if the user hasn't explicitly overwritten it
+elif 'last_target_v' in st.session_state and st.session_state.last_target_v != target_v:
+    st.session_state.v_start = target_v
 
-# --- 3. SIDEBAR INPUTS ---
+st.session_state.last_target_v = target_v
+
+# --- 2. SIDEBAR INPUTS ---
 st.sidebar.header("Simulation Parameters")
 v_start = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, key="v_start")
 I1 = st.sidebar.number_input("Pulse 1 Amp (uA)", min_value=-79.0, max_value=80.0, key="I1")
@@ -42,22 +46,16 @@ I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0
 p2 = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, key="p2")
 t_max = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, key="t_max")
 
-# --- 4. BUTTONS ---
+# --- 3. BUTTONS (Two clear choices at the bottom) ---
 st.sidebar.markdown("---")
 if st.sidebar.button("RUN", type="primary", use_container_width=True):
     st.session_state.needs_run = True
 
 if st.sidebar.button("RESET", use_container_width=True):
     st.session_state.needs_run = False
-
-if st.sidebar.button("DEFAULT VALUES", use_container_width=True):
-    st.session_state.v_start = -53.0
-    st.session_state.I1 = 0.0; st.session_state.p1 = 0.0; st.session_state.delay = 0.0
-    st.session_state.I2 = 0.0; st.session_state.p2 = 0.0; st.session_state.t_max = 20.0
-    st.session_state.needs_run = False
     st.rerun()
 
-# --- 5. MATH ---
+# --- 4. MATH ---
 def rate_constants(v):
     am = 0.1 * (-35 - v) / (np.exp((-35 - v) / 10) - 1)
     bm = 4 * np.exp((-60 - v) / 18)
@@ -80,11 +78,10 @@ def equations(t, y, p1, p2, delay, I1, I2):
     dh = ah * (1 - h) - bh * h
     return [dv, dn, dm, dh]
 
-# --- 6. PLOTTING (CRISP RENDER) ---
+# --- 5. PLOTTING ---
 fig, axs = plt.subplots(2, 3, figsize=(14, 9))
 plt.subplots_adjust(hspace=0.4, wspace=0.3)
 
-# ALWAYS set up axes first so they are visible but empty
 for ax in axs.flat: ax.grid(True, linestyle=':', alpha=0.6)
 axs[0,0].set_ylim(-80, 80); axs[0,0].set_title("Membrane Potential (mV)")
 axs[0,1].set_ylim(0, 1.1); axs[0,1].set_title("Gating Variables")
@@ -93,7 +90,6 @@ axs[1,0].set_ylim(0, 10); axs[1,0].set_title("Time Constants (ms)")
 axs[1,1].set_ylim(0, 1.1); axs[1,1].set_title("Steady State Gating")
 axs[1,2].set_xlim(-80, 80); axs[1,2].set_ylim(0, 1.1); axs[1,2].set_title("Phase Plane (V vs n)")
 
-# LOGIC GATE: Only plot if RUN was the last button clicked
 if st.session_state.needs_run:
     an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
     y0 = [st.session_state.v_start, an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)]
@@ -124,5 +120,4 @@ if st.session_state.needs_run:
     axs[1,2].plot(sol.y[0], sol.y[1], color=C_BLUE, label='V vs n')
     axs[1,2].legend(loc='upper right')
 
-# The final crisp render
 st.pyplot(fig, clear_figure=True)
