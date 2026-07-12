@@ -13,6 +13,7 @@ C_GOLD = 'darkgoldenrod'
 C_BLUE = 'darkblue'
 
 # --- 1. INITIAL SESSION STATE ---
+if 'v_start' not in st.session_state: st.session_state.v_start = -53.0
 if 'I1' not in st.session_state: st.session_state.I1 = 0.0
 if 'p1' not in st.session_state: st.session_state.p1 = 0.0
 if 'delay' not in st.session_state: st.session_state.delay = 0.0
@@ -21,30 +22,51 @@ if 'p2' not in st.session_state: st.session_state.p2 = 0.0
 if 't_max' not in st.session_state: st.session_state.t_max = 20.0
 if 'needs_run' not in st.session_state: st.session_state.needs_run = False
 
-# Track pulses to determine the auto-voltage target
-pulses_active = any([st.session_state.I1 != 0, st.session_state.p1 != 0, 
-                     st.session_state.delay != 0, st.session_state.I2 != 0, 
-                     st.session_state.p2 != 0])
-target_v = -60.0 if pulses_active else -53.0
+# Fallback tracking for changes
+if 'old_v' not in st.session_state: st.session_state.old_v = st.session_state.v_start
+if 'old_pulses' not in st.session_state:
+    st.session_state.old_pulses = [st.session_state.I1, st.session_state.p1, st.session_state.delay, st.session_state.I2, st.session_state.p2]
 
-# Initialize v_start properly without locked loops
-if 'v_start' not in st.session_state: 
-    st.session_state.v_start = target_v
-# Only auto-update if the user hasn't explicitly overwritten it
-elif 'last_target_v' in st.session_state and st.session_state.last_target_v != target_v:
-    st.session_state.v_start = target_v
-
-st.session_state.last_target_v = target_v
-
-# --- 2. SIDEBAR INPUTS ---
+# --- 2. SIDEBAR PARAMETER INTERDEPENDENCIES ---
 st.sidebar.header("Simulation Parameters")
-v_start = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, key="v_start")
-I1 = st.sidebar.number_input("Pulse 1 Amp (uA)", min_value=-79.0, max_value=80.0, key="I1")
-p1 = st.sidebar.number_input("Pulse 1 Width (ms)", min_value=0.0, max_value=80.0, key="p1")
-delay = st.sidebar.number_input("Delay (ms)", min_value=0.0, max_value=80.0, key="delay")
-I2 = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0, key="I2")
-p2 = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, key="p2")
-t_max = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, key="t_max")
+
+# Capture values safely within restrictions via number inputs
+v_start_input = st.sidebar.number_input("Initial V (mV)", min_value=-79.0, max_value=80.0, value=st.session_state.v_start, step=1.0)
+I1_input = st.sidebar.number_input("Pulse 1 Amp (uA)", min_value=-79.0, max_value=80.0, value=st.session_state.I1, step=1.0)
+p1_input = st.sidebar.number_input("Pulse 1 Width (ms)", min_value=0.0, max_value=80.0, value=st.session_state.p1, step=1.0)
+delay_input = st.sidebar.number_input("Delay (ms)", min_value=0.0, max_value=80.0, value=st.session_state.delay, step=1.0)
+I2_input = st.sidebar.number_input("Pulse 2 Amp (uA)", min_value=-79.0, max_value=80.0, value=st.session_state.I2, step=1.0)
+p2_input = st.sidebar.number_input("Pulse 2 Width (ms)", min_value=0.0, max_value=80.0, value=st.session_state.p2, step=1.0)
+t_max_input = st.sidebar.number_input("Time Span (ms)", min_value=1.0, max_value=500.0, value=st.session_state.t_max, step=1.0)
+
+# Check what changed
+v_changed = (v_start_input != st.session_state.old_v)
+current_pulses = [I1_input, p1_input, delay_input, I2_input, p2_input]
+pulses_changed = (current_pulses != st.session_state.old_pulses)
+
+# Apply state-tracking relationship rules
+if v_changed:
+    st.session_state.v_start = v_start_input
+    st.session_state.I1 = 0.0
+    st.session_state.p1 = 0.0
+    st.session_state.delay = 0.0
+    st.session_state.I2 = 0.0
+    st.session_state.p2 = 0.0
+    st.session_state.old_v = v_start_input
+    st.session_state.old_pulses = [0.0, 0.0, 0.0, 0.0, 0.0]
+    st.rerun()
+elif pulses_changed:
+    st.session_state.v_start = -60.0
+    st.session_state.I1 = I1_input
+    st.session_state.p1 = p1_input
+    st.session_state.delay = delay_input
+    st.session_state.I2 = I2_input
+    st.session_state.p2 = p2_input
+    st.session_state.old_v = -60.0
+    st.session_state.old_pulses = current_pulses
+    st.rerun()
+else:
+    st.session_state.t_max = t_max_input
 
 # --- 3. BUTTONS ---
 st.sidebar.markdown("---")
@@ -52,12 +74,20 @@ if st.sidebar.button("RUN", type="primary", use_container_width=True):
     st.session_state.needs_run = True
 
 if st.sidebar.button("RESET", use_container_width=True):
+    st.session_state.v_start = -53.0
+    st.session_state.I1 = 0.0
+    st.session_state.p1 = 0.0
+    st.session_state.delay = 0.0
+    st.session_state.I2 = 0.0
+    st.session_state.p2 = 0.0
+    st.session_state.t_max = 20.0
+    st.session_state.old_v = -53.0
+    st.session_state.old_pulses = [0.0, 0.0, 0.0, 0.0, 0.0]
     st.session_state.needs_run = False
     st.rerun()
 
 # --- 4. MATH ---
 def rate_constants(v):
-    # Added a tiny epsilon (1e-6) to prevent any potential division by zero glitches
     am = 0.1 * (-35 - v) / (np.exp((-35 - v) / 10) - 1 + 1e-6)
     bm = 4 * np.exp((-60 - v) / 18)
     ah = 0.07 * np.exp((-60 - v) / 20)
@@ -72,7 +102,6 @@ def equations(t, y, p1, p2, delay, I1, I2):
     vK, vNa, vL = -72.14, 55.17, -49.24
     Cm = 1.0
     
-    # Stimulus current timing logic
     if t < p1:
         Is = I1
     elif t < (p1 + delay + p2):
@@ -91,23 +120,31 @@ def equations(t, y, p1, p2, delay, I1, I2):
 fig, axs = plt.subplots(2, 3, figsize=(14, 9))
 plt.subplots_adjust(hspace=0.4, wspace=0.3)
 
-for ax in axs.flat: ax.grid(True, linestyle=':', alpha=0.6)
-axs[0,0].set_ylim(-80, 80); axs[0,0].set_title("Membrane Potential (mV)")
-axs[0,1].set_ylim(0, 1.1); axs[0,1].set_title("Gating Variables")
-axs[0,2].set_ylim(0, 40); axs[0,2].set_title("Conductances")
-axs[1,0].set_ylim(0, 10); axs[1,0].set_title("Time Constants (ms)")
-axs[1,1].set_ylim(0, 1.1); axs[1,1].set_title("Steady State Gating")
-axs[1,2].set_xlim(-80, 80); axs[1,2].set_ylim(0, 1.1); axs[1,2].set_title("Phase Plane (V vs n)")
+for ax in axs.flat: 
+    ax.grid(True, linestyle=':', alpha=0.6)
+
+# Set strict limits and strip out whitespace padding (Start at the specified origins)
+axs[0,0].set_ylim(-80, 80); axs[0,0].set_xlim(left=0); axs[0,0].set_title("Membrane Potential (mV)")
+axs[0,1].set_ylim(0, 1.1); axs[0,1].set_xlim(left=0); axs[0,1].set_title("Gating Variables")
+axs[0,2].set_ylim(0, 40); axs[0,2].set_xlim(left=0); axs[0,2].set_title("Conductances")
+
+# Bottom row plots are over voltage space; clamp x-axis origins firmly
+axs[1,0].set_ylim(0, 10); axs[1,0].set_xlim(left=-100, right=100); axs[1,0].set_title("Time Constants (ms)")
+axs[1,1].set_ylim(0, 1.1); axs[1,1].set_xlim(left=-100, right=100); axs[1,1].set_title("Steady State Gating")
+axs[1,2].set_ylim(0, 1.1); axs[1,2].set_xlim(left=-75, right=80); axs[1,2].set_title("Phase Plane (V vs n)")
 
 if st.session_state.needs_run:
-    # Calculate steady state conditions for initial gating values based on resting at -60
     an0, bn0, am0, bm0, ah0, bh0 = rate_constants(-60.0)
     y0 = [st.session_state.v_start, an0/(an0+bn0), am0/(am0+bm0), ah0/(ah0+bh0)]
     
-    # FIXED ARGS ORDER MATCHING THE DEFINITION
     sol = solve_ivp(equations, [0, st.session_state.t_max], y0, 
                     args=(st.session_state.p1, st.session_state.p2, st.session_state.delay, st.session_state.I1, st.session_state.I2), 
                     method='BDF', t_eval=np.linspace(0, st.session_state.t_max, 1000))
+
+    # Clean alignment matching time vector limits
+    axs[0,0].set_xlim(0, st.session_state.t_max)
+    axs[0,1].set_xlim(0, st.session_state.t_max)
+    axs[0,2].set_xlim(0, st.session_state.t_max)
 
     # 1. Potential
     axs[0,0].plot(sol.t, sol.y[0], color='black', lw=2, label='V')
